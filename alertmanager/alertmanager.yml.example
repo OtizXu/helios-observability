@@ -1,0 +1,69 @@
+# =====================================================================
+# Alertmanager — Notification routing
+# =====================================================================
+# COPY THIS FILE TO alertmanager.yml AND FILL IN YOUR REAL VALUES.
+# alertmanager.yml is gitignored so secrets never leak.
+#
+# Get a Telegram bot token from @BotFather.
+# Get your chat_id by messaging @userinfobot.
+# =====================================================================
+
+global:
+  resolve_timeout: 5m
+
+# ---------------------------------------------------------------------
+# Routing tree
+# ---------------------------------------------------------------------
+# Every alert enters at the top route. Children match more specific
+# labels and override parent settings.
+# ---------------------------------------------------------------------
+route:
+  # Group similar alerts together so we don't spam the channel
+  group_by: ['alertname', 'severity', 'host']
+  group_wait: 30s         # wait this long before sending the first notification
+  group_interval: 5m      # wait this long before sending an updated notification for the same group
+  repeat_interval: 4h     # resend the same alert every N hours if still firing
+  receiver: 'telegram-default'
+
+  # Sub-routes for special handling
+  routes:
+    # Critical alerts skip the wait — fire immediately
+    - matchers:
+        - severity = "critical"
+      receiver: 'telegram-default'
+      group_wait: 0s
+      repeat_interval: 1h
+
+# ---------------------------------------------------------------------
+# Receivers — where alerts actually go
+# ---------------------------------------------------------------------
+receivers:
+  - name: 'telegram-default'
+    telegram_configs:
+      - bot_token: 'REPLACE_WITH_YOUR_TELEGRAM_BOT_TOKEN'
+        chat_id: 0   # REPLACE with your numeric Telegram user/chat ID (no quotes)
+        api_url: 'https://api.telegram.org'
+        parse_mode: 'HTML'
+        message: |
+          <b>🚨 [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}</b>
+          <b>severity:</b> {{ .CommonLabels.severity }}
+          <b>cluster:</b> {{ .CommonLabels.cluster }}
+          <b>host:</b> {{ .CommonLabels.host }}
+
+          {{ range .Alerts }}
+          <b>summary:</b> {{ .Annotations.summary }}
+          <b>description:</b> {{ .Annotations.description }}
+          <b>started:</b> {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+          {{ end }}
+
+# ---------------------------------------------------------------------
+# Inhibition rules — when X fires, suppress Y
+# ---------------------------------------------------------------------
+# Example: if the host is down, don't also page about high CPU on it.
+# ---------------------------------------------------------------------
+inhibit_rules:
+  - source_matchers:
+      - alertname = "HostDown"
+    target_matchers:
+      - component = "host"
+    equal: ['host']

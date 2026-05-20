@@ -1,0 +1,47 @@
+# =====================================================================
+# Grafana datasource provisioning
+# =====================================================================
+# Grafana picks up files in /etc/grafana/provisioning/datasources at
+# boot. This means a fresh Grafana container automatically knows about
+# Prometheus + Loki — no manual UI clicking required.
+#
+# This is the "infrastructure as code" model for Grafana.
+# =====================================================================
+
+apiVersion: 1
+
+datasources:
+
+  # ---- Prometheus (metrics) -----------------------------------------
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+
+  # ---- Loki (logs) --------------------------------------------------
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true
+    jsonData:
+      maxLines: 1000
+      # Link each log line back to a Prometheus trace if Tempo is added
+      # in a future stage; harmless here.
+      derivedFields: []
+
+  # ---- Alertmanager -------------------------------------------------
+  # Lets Grafana's "Alerting" UI show what Alertmanager is seeing.
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: true
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false

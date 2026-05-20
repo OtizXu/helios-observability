@@ -1,0 +1,65 @@
+# =====================================================================
+# Prometheus — Main configuration
+# =====================================================================
+# - Pull-based scraping: Prometheus reaches OUT to each target's /metrics
+# - All container DNS names resolve via the helios-net Docker network
+# - Alert rules live in alerts.yml (kept separate for cleanliness)
+# - Fires alerts to alertmanager:9093
+# =====================================================================
+
+global:
+  # How often Prometheus scrapes targets
+  scrape_interval: 15s
+  # How often Prometheus evaluates alert rules
+  evaluation_interval: 15s
+  # External labels are attached to every series leaving this Prometheus
+  # (matters when Week 5 federates multiple Prometheus instances together)
+  external_labels:
+    cluster: helios-mac01
+    region: tpe-home
+
+# Where to send alerts
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Alert + recording rule files
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# =====================================================================
+# Scrape jobs — what Prometheus monitors
+# =====================================================================
+scrape_configs:
+
+  # ---- Prometheus itself (so we can monitor the monitor) -------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ---- Host-level metrics from node-exporter -------------------------
+  # CPU, memory, disk, network, filesystem, load average, etc.
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          host: helios-mac01
+
+  # ---- Alertmanager self-metrics -------------------------------------
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+
+  # ---- Loki self-metrics ---------------------------------------------
+  # Loki exposes its own /metrics for monitoring the log pipeline
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+
+  # ---- Grafana self-metrics ------------------------------------------
+  # Grafana exposes /metrics; useful to track dashboard load times etc.
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']

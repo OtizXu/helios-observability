@@ -1,0 +1,109 @@
+# =====================================================================
+# Prometheus — Alert rules
+# =====================================================================
+# Each rule is an expression Prometheus evaluates every
+# `evaluation_interval` (15s). If the expression returns a series
+# AND stays truthy for `for:` duration, the alert fires.
+#
+# Annotations are human-readable text shown in Alertmanager / Telegram.
+# Labels are how Alertmanager routes / groups alerts.
+# =====================================================================
+
+groups:
+
+  # ---------------------------------------------------------------------
+  # Host health — derived from node-exporter metrics
+  # ---------------------------------------------------------------------
+  - name: host-health
+    rules:
+
+      # ---- High CPU usage --------------------------------------------
+      # Idle time across all CPUs averaged over 5m. If non-idle > 80%,
+      # something is hammering the host.
+      - alert: HighCpuUsage
+        expr: |
+          100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High CPU on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
+          description: |
+            CPU usage on {{ $labels.host }} has stayed above 80% for 5 minutes.
+            Current value: {{ printf "%.1f" $value }}%.
+
+      # ---- High memory usage -----------------------------------------
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High memory on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
+          description: |
+            Memory usage above 85% for 5 minutes.
+            Current value: {{ printf "%.1f" $value }}%.
+
+      # ---- High disk usage -------------------------------------------
+      # Triggers when any non-tmpfs filesystem is more than 85% full.
+      - alert: HighDiskUsage
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "Disk {{ $labels.mountpoint }} on {{ $labels.host }} at {{ printf \"%.1f\" $value }}%"
+          description: |
+            Filesystem {{ $labels.mountpoint }} ({{ $labels.fstype }}) on
+            {{ $labels.host }} is over 85% full for 10 minutes.
+
+      # ---- Host unreachable ------------------------------------------
+      # `up` is 1 when scrape succeeds, 0 when it fails. If we lose the
+      # node-exporter for 2m, the host is effectively dead.
+      - alert: HostDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Host scrape failing for {{ $labels.instance }}"
+          description: |
+            Prometheus has been unable to scrape node-exporter at
+            {{ $labels.instance }} for 2 minutes.
+
+  # ---------------------------------------------------------------------
+  # Observability stack health (the watchers watch the watchers)
+  # ---------------------------------------------------------------------
+  - name: observability-stack
+    rules:
+
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: observability
+        annotations:
+          summary: "Scrape target down: {{ $labels.job }} ({{ $labels.instance }})"
+          description: |
+            Prometheus job '{{ $labels.job }}' target
+            '{{ $labels.instance }}' has been down for 5 minutes.
+
+      - alert: AlertmanagerNotificationsFailing
+        expr: increase(alertmanager_notifications_failed_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: observability
+        annotations:
+          summary: "Alertmanager failing to send notifications"
+          description: |
+            Alertmanager has failed to deliver one or more notifications
+            in the last 5 minutes. Check the receiver configuration.

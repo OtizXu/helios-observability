@@ -1,0 +1,27 @@
+# =====================================================================
+# Grafana dashboard provisioning
+# =====================================================================
+# Tells Grafana where to look for dashboard JSON files. Anything dropped
+# into /etc/grafana/provisioning/dashboards/ (the directory mounted from
+# this folder) will be auto-loaded.
+#
+# We start with no JSON dashboards committed — they're created by
+# clicking around in the UI, then exported. Add them to this folder
+# and they'll appear automatically on next Grafana restart.
+# =====================================================================
+
+apiVersion: 1
+
+providers:
+  - name: 'Helios dashboards'
+    orgId: 1
+    folder: 'Helios'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true   # Lets you tweak dashboards in the UI
+    options:
+      # Path inside the Grafana container (mounted from
+      # ./grafana/provisioning/dashboards on the host)
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

@@ -2,6 +2,9 @@
 .env
 *.env.local
 
+# Real Alertmanager config (contains Telegram bot_token + chat_id)
+alertmanager/alertmanager.yml
+
 # 個人筆記(留 local)
 TUTORIAL.md
 

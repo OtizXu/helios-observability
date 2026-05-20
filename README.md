@@ -80,6 +80,10 @@ cd helios-observability
 cp .env.example .env
 # Edit .env and fill in your TELEGRAM_BOT_TOKEN and TELEGRAM_USER_ID
 
+# Create the real Alertmanager config (also gitignored)
+cp alertmanager/alertmanager.yml.example alertmanager/alertmanager.yml
+# Edit alertmanager/alertmanager.yml: paste your bot_token and chat_id
+
 # Start the stack
 docker compose up -d
 
@@ -160,7 +164,7 @@ helios-observability/
 │       ├── datasources/        ← Prometheus + Loki auto-provisioned
 │       └── dashboards/         ← Auto-imported dashboards
 ├── alertmanager/
-│   └── alertmanager.yml
+│   └── alertmanager.yml.example  ← copy → alertmanager.yml (gitignored)
 └── .env.example                ← Telegram bot template (copy → .env)
 ```
 
