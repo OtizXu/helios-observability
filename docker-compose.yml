@@ -51,6 +51,14 @@ services:
   # ---------------------------------------------------------------------
   # 讀取 host 的 /proc, /sys, /,把 CPU/memory/disk/network 暴露成
   # HTTP /metrics endpoint,Prometheus 會去這個 endpoint 抓
+  #
+  # NOTE on mount propagation:
+  # 在 Linux 上業界標準寫法是 `/:/host:ro,rslave`(rslave 讓動態 mount
+  # 的子檔案系統也能被觀測)。但 Docker Desktop on Mac 內部跑的 Linux VM
+  # 把 `/` 設為 private mount,rslave 會被擋,噴:
+  #   "path / is mounted on / but it is not a shared or slave mount"
+  # 我們 lab 不做動態 mount,改普通 ro bind 即可。
+  # 真正 production Linux 部署時改回 :ro,rslave。
   # ---------------------------------------------------------------------
   node-exporter:
     image: prom/node-exporter:v1.8.2
@@ -62,7 +70,8 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
     volumes:
       # 把 host 的 / mount 為唯讀(node-exporter 才能讀到 host 真實狀態)
-      - '/:/host:ro,rslave'
+      # macOS Docker Desktop 限制:不能用 rslave,只能用普通 :ro
+      - '/:/host:ro'
     ports:
       - "9100:9100"
     restart: unless-stopped
