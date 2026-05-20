@@ -66,8 +66,11 @@ services:
     command:
       # 告訴 node-exporter:host 真實的根檔案系統 mount 在容器的 /host
       - '--path.rootfs=/host'
-      # 排除 docker / 虛擬檔案系統的雜訊
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+      # 排除 docker / 虛擬檔案系統的雜訊(by mount point)
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|oldroot|run|usr|var/lib/docker|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+      # 排除唯讀 / 虛擬檔案系統(by fs type)— SRE 標準 noise reduction
+      # erofs/squashfs/iso9660 是唯讀,used % 永遠接近 100% 但不該告警
+      - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|erofs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$$'
     volumes:
       # 把 host 的 / mount 為唯讀(node-exporter 才能讀到 host 真實狀態)
       # macOS Docker Desktop 限制:不能用 rslave,只能用普通 :ro

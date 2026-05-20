@@ -48,11 +48,14 @@ groups:
             Current value: {{ printf "%.1f" $value }}%.
 
       # ---- High disk usage -------------------------------------------
-      # Triggers when any non-tmpfs filesystem is more than 85% full.
+      # Triggers when any "real" filesystem is more than 85% full.
+      # We exclude read-only / pseudo / overlay filesystems explicitly
+      # because their used% is meaningless or always ~100% by design
+      # (e.g. erofs is the macOS Docker Desktop VM's read-only root).
       - alert: HighDiskUsage
         expr: |
-          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
-              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})) * 100 > 85
+          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"}
+              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"})) * 100 > 85
         for: 10m
         labels:
           severity: warning
