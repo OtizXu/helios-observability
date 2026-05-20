@@ -1,0 +1,21 @@
+# Secrets
+.env
+*.env.local
+
+# 個人筆記(留 local)
+TUTORIAL.md
+
+# Docker volumes / runtime data(會被 docker 自動建)
+*-data/
+*.tsdb
+positions.yaml
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Grafana provisioning 之後會生 dashboards JSON,先預留
+grafana/provisioning/dashboards/*.json
+!grafana/provisioning/dashboards/.gitkeep

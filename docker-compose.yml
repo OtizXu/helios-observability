@@ -1,0 +1,170 @@
+# =====================================================================
+# Helios — Week 1: Observability Foundation
+# =====================================================================
+# Mac mini #1 (192.168.0.6) 上的觀測棧
+#
+# 6 個 service:
+#   1. prometheus      — 收集 + 存 metrics(TSDB)
+#   2. node-exporter   — 暴露 host metrics 給 prometheus 抓
+#   3. loki            — 收集 + 存 logs
+#   4. promtail        — 從 host 讀 log → push 給 loki
+#   5. grafana         — Web UI(metrics + logs 都從這看)
+#   6. alertmanager    — 收 prometheus 告警 → 推 Telegram
+#
+# 啟動方式:
+#   docker compose up -d
+# 停止:
+#   docker compose down
+# 含資料一起砍:
+#   docker compose down -v
+# =====================================================================
+
+services:
+
+  # ---------------------------------------------------------------------
+  # 1. Prometheus — Metrics 引擎
+  # ---------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1     # 鎖版本,SRE 不接受 :latest
+    container_name: helios-prometheus
+    volumes:
+      # 主設定檔(scrape targets, alert rules path)
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # alert 規則檔(分開放好維護)
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      # TSDB 資料持久化(容器砍了重開資料還在)
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'   # 只保留 15 天(成本考量)
+      - '--web.enable-lifecycle'              # 允許 hot reload(curl POST /-/reload)
+      - '--web.enable-admin-api'              # 允許管理 API(刪 series 等)
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - helios-net
+
+  # ---------------------------------------------------------------------
+  # 2. Node Exporter — Host 指標來源
+  # ---------------------------------------------------------------------
+  # 讀取 host 的 /proc, /sys, /,把 CPU/memory/disk/network 暴露成
+  # HTTP /metrics endpoint,Prometheus 會去這個 endpoint 抓
+  # ---------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: helios-node-exporter
+    command:
+      # 告訴 node-exporter:host 真實的根檔案系統 mount 在容器的 /host
+      - '--path.rootfs=/host'
+      # 排除 docker / 虛擬檔案系統的雜訊
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+    volumes:
+      # 把 host 的 / mount 為唯讀(node-exporter 才能讀到 host 真實狀態)
+      - '/:/host:ro,rslave'
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+    networks:
+      - helios-net
+
+  # ---------------------------------------------------------------------
+  # 3. Loki — Logs 儲存
+  # ---------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: helios-loki
+    volumes:
+      # Loki 主設定檔
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      # log chunks + index 持久化
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+    networks:
+      - helios-net
+
+  # ---------------------------------------------------------------------
+  # 4. Promtail — Logs 收集器(把 log 推給 Loki)
+  # ---------------------------------------------------------------------
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: helios-promtail
+    volumes:
+      # Promtail 設定檔
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      # mount host 的 /var/log(要讀 log 自然要 mount)
+      - /var/log:/var/log:ro
+      # Promtail 用來記「上次讀到哪裡」的 position 檔
+      - promtail-data:/tmp
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - helios-net
+    depends_on:
+      - loki    # Promtail 要等 loki 起來才有意義
+
+  # ---------------------------------------------------------------------
+  # 5. Grafana — Web UI(主要操作介面)
+  # ---------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: helios-grafana
+    volumes:
+      # Grafana 自身資料(dashboard 設定、user 等)
+      - grafana-data:/var/lib/grafana
+      # 預先設定好的 datasource(Prometheus + Loki)
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin   # 第一次登入會強制改
+      - GF_USERS_ALLOW_SIGN_UP=false       # 不開放註冊(只 admin 用)
+      - GF_INSTALL_PLUGINS=                # 之後可以加 plugin
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - helios-net
+    depends_on:
+      - prometheus
+      - loki
+
+  # ---------------------------------------------------------------------
+  # 6. Alertmanager — 告警通知中心
+  # ---------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: helios-alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+    networks:
+      - helios-net
+
+# =====================================================================
+# Volumes — 容器砍了資料還在(Docker 管理的 volume,不是 host bind mount)
+# =====================================================================
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  alertmanager-data:
+  promtail-data:
+
+# =====================================================================
+# Network — 6 個 service 共用一個內部 bridge network
+# 容器之間用 service name 互通(例如 prometheus 連 alertmanager:9093)
+# =====================================================================
+networks:
+  helios-net:
+    driver: bridge
+    name: helios-net
