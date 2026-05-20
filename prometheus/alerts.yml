@@ -33,6 +33,24 @@ groups:
             CPU usage on {{ $labels.host }} has stayed above 80% for 5 minutes.
             Current value: {{ printf "%.1f" $value }}%.
 
+      # ---- Fast CPU spike(教學版,demo 用,short-window)---------------
+      # 用 [1m] rate + for: 30s,讓短暫 spike 也能 fire,
+      # 純粹是 lab 教學「完整 alert 循環」用。
+      # Production 不該這樣寫(會 alert fatigue),正式規則是上面那條。
+      - alert: HighCpuUsageDemo
+        expr: |
+          100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 60
+        for: 30s
+        labels:
+          severity: info
+          component: host
+          purpose: demo
+        annotations:
+          summary: "[DEMO] CPU spike on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
+          description: |
+            Short-window CPU spike alert (lab demo only).
+            Current value: {{ printf "%.1f" $value }}%.
+
       # ---- High memory usage -----------------------------------------
       - alert: HighMemoryUsage
         expr: |
@@ -46,6 +64,25 @@ groups:
           description: |
             Memory usage above 85% for 5 minutes.
             Current value: {{ printf "%.1f" $value }}%.
+
+      # ---- High system load(coverage gap fix)-----------------------
+      # Load average 是「正在跑或等待 CPU 的 process 數」
+      # 跟 CPU 使用率不同維度 — 高 load + 低 CPU = 大量 process 在等 IO
+      # 業界經驗:load > 邏輯 CPU 數 持續 10 分鐘 = 系統忙到該擴容了
+      - alert: HighSystemLoad
+        expr: |
+          node_load5 > count by (host) (
+            count by (cpu, host) (node_cpu_seconds_total)
+          )
+        for: 10m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High load on {{ $labels.host }} (load5={{ printf \"%.2f\" $value }})"
+          description: |
+            5-minute load average is higher than the number of logical CPUs.
+            Could indicate CPU saturation or I/O wait.
 
       # ---- High disk usage -------------------------------------------
       # Triggers when any "real" filesystem is more than 85% full.
