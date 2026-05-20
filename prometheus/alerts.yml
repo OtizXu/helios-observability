@@ -58,8 +58,11 @@ groups:
       # Load average is "processes running OR waiting for CPU".
       # Different dimension from CPU usage: high load + low CPU = I/O wait.
       # Industry rule of thumb: load > logical CPU count for 10+ min = saturation.
+      #
+      # Threshold simplified for lab: M4 mini has 10 logical CPUs.
+      # Production would use a templated/dynamic threshold based on host CPU count.
       - alert: HighSystemLoad
-        expr: node_load5 > on(host) group_left count by (host) (node_cpu_seconds_total{mode="idle"})
+        expr: node_load5 > 10
         for: 10m
         labels:
           severity: warning
