@@ -18,28 +18,22 @@ groups:
     rules:
 
       # ---- High CPU usage --------------------------------------------
-      # Idle time across all CPUs averaged over 5m. If non-idle > 80%,
-      # something is hammering the host.
+      # Production rule: 5-min average above 80% sustained for 5 minutes.
       - alert: HighCpuUsage
-        expr: |
-          100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        expr: 100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
         for: 5m
         labels:
           severity: warning
           component: host
         annotations:
           summary: "High CPU on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
-          description: |
-            CPU usage on {{ $labels.host }} has stayed above 80% for 5 minutes.
-            Current value: {{ printf "%.1f" $value }}%.
+          description: "CPU usage on {{ $labels.host }} above 80% for 5+ minutes. Current: {{ printf \"%.1f\" $value }}%."
 
-      # ---- Fast CPU spike(教學版,demo 用,short-window)---------------
-      # 用 [1m] rate + for: 30s,讓短暫 spike 也能 fire,
-      # 純粹是 lab 教學「完整 alert 循環」用。
-      # Production 不該這樣寫(會 alert fatigue),正式規則是上面那條。
+      # ---- Fast CPU spike (lab demo only) ----------------------------
+      # Short-window rule for teaching: 1-min rate over 60% for 30 seconds.
+      # Production should NOT use this (alert fatigue). Demo purpose only.
       - alert: HighCpuUsageDemo
-        expr: |
-          100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 60
+        expr: 100 - (avg by (host) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 60
         for: 30s
         labels:
           severity: info
@@ -47,65 +41,50 @@ groups:
           purpose: demo
         annotations:
           summary: "[DEMO] CPU spike on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
-          description: |
-            Short-window CPU spike alert (lab demo only).
-            Current value: {{ printf "%.1f" $value }}%.
+          description: "Short-window CPU spike alert (lab demo only). Current: {{ printf \"%.1f\" $value }}%."
 
       # ---- High memory usage -----------------------------------------
       - alert: HighMemoryUsage
-        expr: |
-          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
         for: 5m
         labels:
           severity: warning
           component: host
         annotations:
           summary: "High memory on {{ $labels.host }} ({{ printf \"%.1f\" $value }}%)"
-          description: |
-            Memory usage above 85% for 5 minutes.
-            Current value: {{ printf "%.1f" $value }}%.
+          description: "Memory usage above 85% for 5+ minutes. Current: {{ printf \"%.1f\" $value }}%."
 
-      # ---- High system load(coverage gap fix)-----------------------
-      # Load average 是「正在跑或等待 CPU 的 process 數」
-      # 跟 CPU 使用率不同維度 — 高 load + 低 CPU = 大量 process 在等 IO
-      # 業界經驗:load > 邏輯 CPU 數 持續 10 分鐘 = 系統忙到該擴容了
+      # ---- High system load (coverage gap fix from TS-08) ------------
+      # Load average is "processes running OR waiting for CPU".
+      # Different dimension from CPU usage: high load + low CPU = I/O wait.
+      # Industry rule of thumb: load > logical CPU count for 10+ min = saturation.
       - alert: HighSystemLoad
-        expr: |
-          node_load5 > count by (host) (
-            count by (cpu, host) (node_cpu_seconds_total)
-          )
+        expr: node_load5 > on(host) group_left count by (host) (node_cpu_seconds_total{mode="idle"})
         for: 10m
         labels:
           severity: warning
           component: host
         annotations:
           summary: "High load on {{ $labels.host }} (load5={{ printf \"%.2f\" $value }})"
-          description: |
-            5-minute load average is higher than the number of logical CPUs.
-            Could indicate CPU saturation or I/O wait.
+          description: "5-minute load average exceeds logical CPU count. Possible CPU saturation or I/O wait."
 
       # ---- High disk usage -------------------------------------------
-      # Triggers when any "real" filesystem is more than 85% full.
-      # We exclude read-only / pseudo / overlay filesystems explicitly
-      # because their used% is meaningless or always ~100% by design
-      # (e.g. erofs is the macOS Docker Desktop VM's read-only root).
+      # Excludes read-only / pseudo / overlay filesystems whose used%
+      # is meaningless or always ~100% by design (e.g. erofs in macOS
+      # Docker Desktop VM root).
       - alert: HighDiskUsage
-        expr: |
-          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"}
-              / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"})) * 100 > 85
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|erofs|iso9660|fuse.*|nsfs"})) * 100 > 85
         for: 10m
         labels:
           severity: warning
           component: host
         annotations:
           summary: "Disk {{ $labels.mountpoint }} on {{ $labels.host }} at {{ printf \"%.1f\" $value }}%"
-          description: |
-            Filesystem {{ $labels.mountpoint }} ({{ $labels.fstype }}) on
-            {{ $labels.host }} is over 85% full for 10 minutes.
+          description: "Filesystem {{ $labels.mountpoint }} ({{ $labels.fstype }}) on {{ $labels.host }} over 85% full for 10+ min."
 
       # ---- Host unreachable ------------------------------------------
-      # `up` is 1 when scrape succeeds, 0 when it fails. If we lose the
-      # node-exporter for 2m, the host is effectively dead.
+      # `up` is 1 when scrape succeeds, 0 when it fails.
+      # 2 minutes of failed scrapes = host effectively dead.
       - alert: HostDown
         expr: up{job="node-exporter"} == 0
         for: 2m
@@ -114,9 +93,7 @@ groups:
           component: host
         annotations:
           summary: "Host scrape failing for {{ $labels.instance }}"
-          description: |
-            Prometheus has been unable to scrape node-exporter at
-            {{ $labels.instance }} for 2 minutes.
+          description: "Prometheus unable to scrape node-exporter at {{ $labels.instance }} for 2+ minutes."
 
   # ---------------------------------------------------------------------
   # Observability stack health (the watchers watch the watchers)
@@ -132,9 +109,7 @@ groups:
           component: observability
         annotations:
           summary: "Scrape target down: {{ $labels.job }} ({{ $labels.instance }})"
-          description: |
-            Prometheus job '{{ $labels.job }}' target
-            '{{ $labels.instance }}' has been down for 5 minutes.
+          description: "Prometheus job '{{ $labels.job }}' target '{{ $labels.instance }}' down for 5+ minutes."
 
       - alert: AlertmanagerNotificationsFailing
         expr: increase(alertmanager_notifications_failed_total[5m]) > 0
@@ -144,6 +119,4 @@ groups:
           component: observability
         annotations:
           summary: "Alertmanager failing to send notifications"
-          description: |
-            Alertmanager has failed to deliver one or more notifications
-            in the last 5 minutes. Check the receiver configuration.
+          description: "Alertmanager failed to deliver one or more notifications in the last 5 minutes."
